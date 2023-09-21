@@ -1,0 +1,22 @@
+[package]
+name = "bevy_refractive_material"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[patch.crates-io]
+bevy = { git = 'https://github.com/andersesbensen/bevy.git', branch="feature/user_clipping" }
+
+# replace the bevy git URL source with ours
+[patch."https://github.com/bevyengine/bevy"]
+# if we have our own fork
+bevy = { git = "https://github.com/andersesbensen/bevy", branch="feature/user_clipping" }
+
+
+[dependencies]
+bevy = { git = 'https://github.com/andersesbensen/bevy.git', branch="feature/user_clipping" }
+
+
+
