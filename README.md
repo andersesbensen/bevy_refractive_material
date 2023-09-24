@@ -3,3 +3,5 @@
 This crate provides a plugin for the bevy game engine to make reflective surfaces, such as water or mirrors.
 
 ![Example of a water like surface](doc-assets/water_example.png)
+
+![Example of a mirror like surface](doc-assets/mirror_example.png)

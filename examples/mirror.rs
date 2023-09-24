@@ -19,7 +19,7 @@ fn animate_camera(mut camera_querey: Query<&mut Transform, With<MainCamera>>, ti
     if let Ok(mut t) = camera_querey.get_single_mut() {
         t.rotate_around(
             Vec3::ZERO,
-            Quat::from_rotation_y(time.delta_seconds() * 0.1),
+            Quat::from_rotation_y(time.delta_seconds() * 0.3),
         );
         t.look_at(Vec3::ZERO, Vec3::Y);
     }
@@ -35,7 +35,6 @@ fn setup(
 ) {
     // tall cube which goes through the water surface
     let layers = RefractiveMaterial::layers();
-
     commands
         .spawn(PbrBundle {
             mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
@@ -45,16 +44,6 @@ fn setup(
                 y: 4.0,
                 z: 1.0,
             }),
-            ..default()
-        })
-        .insert(layers);
-
-    // Small cube under the water
-    commands
-        .spawn(PbrBundle {
-            mesh: meshes.add(Mesh::from(shape::Cube { size: 1.0 })),
-            material: materials.add(Color::RED.into()),
-            transform: Transform::from_xyz(2.0, -2.0, -2.0),
             ..default()
         })
         .insert(layers);
@@ -69,11 +58,18 @@ fn setup(
         })
         .insert(layers);
 
+    commands.spawn(MaterialMeshBundle {
+        mesh: meshes.add(shape::Plane::from_size(1000.0).into()),
+        material: materials.add(Color::GRAY.into()),
+        ..Default::default()
+    }).insert(layers);
+
+
     // light
     commands.spawn(PointLightBundle {
         point_light: PointLight {
             intensity: 1500.0,
-            shadows_enabled: true,
+            shadows_enabled: false,
             ..default()
         },
         transform: Transform::from_xyz(4.0, 8.0, 4.0),
@@ -92,15 +88,15 @@ fn setup(
         skybox,
     ));
 
-    // Make some water
+    // Make a mirror
     commands.spawn(MaterialMeshBundle {
-        //transform: Transform::from_xyz(0.0, 0.0, 0.0).with_rotation(Quat::from_rotation_z(PI/2.0)),
-        mesh: meshes.add(shape::Plane::from_size(100000.0).into()),
+        transform: Transform::from_xyz(4.0, 2.0, 0.0).with_rotation(Quat::from_rotation_z(PI/2.0)),
+        mesh: meshes.add(shape::Plane::from_size(4.0).into()),
         material: water_materials.add(RefractiveMaterial {
             color: Color::rgba(0.9, 1.0, 0.9, 1.0),
-            speed: 10.0,
-            wavelength: 100.0,
-            r0: 0.5,
+            speed: 0.0,
+            wavelength: 0.0,
+            r0: 0.0,
             ..Default::default()
         }),
         ..Default::default()

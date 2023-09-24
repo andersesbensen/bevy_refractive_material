@@ -7,16 +7,18 @@ edition = "2021"
 
 
 [patch.crates-io]
-bevy = { git = 'https://github.com/andersesbensen/bevy.git', branch="feature/user_clipping" }
+#bevy = { git = 'https://github.com/andersesbensen/bevy.git', branch="feature/user_clipping" }
 
 # replace the bevy git URL source with ours
 [patch."https://github.com/bevyengine/bevy"]
 # if we have our own fork
-bevy = { git = "https://github.com/andersesbensen/bevy", branch="feature/user_clipping" }
+#bevy = { git = "https://github.com/andersesbensen/bevy", branch="feature/user_clipping" }
 
 
 [dependencies]
-bevy = { git = 'https://github.com/andersesbensen/bevy.git', branch="feature/user_clipping" }
+#bevy = { git = 'https://github.com/andersesbensen/bevy.git', branch="feature/user_clipping" }
+bevy = { path ="../bevy" }
+
 
 
 

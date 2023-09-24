@@ -1,3 +1,18 @@
+//!
+//! This crate provides provides a refractive surface material to bevy.
+//! 
+//! A reflective surface is something that reflects light such as a mirror or a water surface
+//! To use this material two things must happen.
+//! 
+//! Three things must be done to make this work. 
+//! 1) The RefractiveMaterialPlugin must be loaded
+//! 2) All meshes in the scene must insert the component RefractiveMaterial::layers()
+//! 3) Construct a plane with a materail of type RefractiveMaterial
+//!
+//! Note: this works by placing extra cameras in the scene, this means that the scene
+//! is rendered multiple times from diffrent angles. For this reson refractive surfaces 
+//! are quite hevay on the GPU. 
+//!  
 use bevy::{
     core_pipeline::Skybox,
     log,
@@ -28,9 +43,9 @@ pub struct RefractiveMaterial {
     #[uniform(0)]
     pub wavelength: f32,
     #[uniform(0)]
-    pub __unused1: f32,
+    pub r0: f32, //The reflectivity
     #[uniform(0)]
-    pub __unused2: f32,
+    pub cos_theta_b: f32, //Cosine of the brewster angle
 
     #[texture(1)]
     #[sampler(2)]
@@ -38,6 +53,7 @@ pub struct RefractiveMaterial {
     #[texture(3)]
     #[sampler(4)]
     pub reflection_texture: Option<Handle<Image>>,
+    pub plane: Vec4,
 }
 
 impl Material for RefractiveMaterial {
@@ -51,20 +67,27 @@ impl Material for RefractiveMaterial {
         _: &MeshVertexBufferLayout,
         _: MaterialPipelineKey<Self>,
     ) -> Result<(), SpecializedMeshPipelineError> {
-        descriptor.primitive.cull_mode = None;
+        //descriptor.primitive.cull_mode = None;
         Ok(())
     }
 }
 
 pub struct RefractiveMaterialPlugin;
 
-impl RefractiveMaterialPlugin {
+impl RefractiveMaterial {
     ///
     /// This function returns the render layers which is used for the calculating the reflections
     /// and refractions
     fn render_layer() -> Layer {
         1
     }
+
+    ///
+    /// Insert this in all PbrBundle entities
+    pub fn layers() -> RenderLayers {
+        RenderLayers::from_layers(&[0, Self::render_layer()])
+    }
+
 }
 
 ///
@@ -82,6 +105,41 @@ struct RefractionCam;
 #[derive(Component)]
 struct ReflectionCam;
 
+/// Mirror a Transform in the plane defined by the 4D Vector(x,y,z,w)
+/// a*x + b*y + c*z + w = 0
+/// 
+fn mirror_transform(transform: &Transform, plane: &Vec4) -> Transform {
+    let t = transform.translation;
+    let plane_normal = plane.xyz();
+    // Find a point on the plane, w is the distance to the plane in the origin
+    // the path to the plane is along the plane normal vector.
+    let plane_pos = plane_normal.xyz()*plane.w;
+    
+    // Mirror the translation part of the transform. Here we make a vector from a point on the plane
+    // to the tranlation, then this is projected onto the normal vector. Finally we walt 2 times 
+    // the projecton vector towards the plane.
+    let translation = t - 2.0 * plane_normal.dot(t - plane_pos) * plane_normal;
+
+    // Build the mirrored rotation. 
+    // 1) define a quaterinion that has Y plane in coordinate in the direction of the plane normal
+    // 2) apply the inverse rotation of see the camera in the plane coordinate system
+    // 3) mirror the rotation in tye XZ plane by flipping the y and w components.
+    // 4) rotate the mirrored rotation back to the original cordinate system 
+    let plane_q = Quat::from_rotation_arc(Vec3::Y, plane_normal);
+    let mut q = plane_q.conjugate() * transform.rotation;
+    q.y = -q.y;
+    q.w = -q.w;
+    let rotation = plane_q * q;
+
+    Transform {
+        translation,
+        rotation,
+        ..Default::default()
+    }
+}
+
+/// Resizes the textures when the window changes
+/// 
 fn resize_notificator(
     resize_event: Res<Events<WindowResized>>,
     mut images: ResMut<Assets<Image>>,
@@ -107,19 +165,22 @@ fn resize_notificator(
     }
 }
 
+///
+/// When a water material is created we spawn the reflection and refraction cameras
 fn build_water(
     mut commands: Commands,
     mut materials: ResMut<Assets<RefractiveMaterial>>,
     mut images: ResMut<Assets<Image>>,
-    material: Query<&Handle<RefractiveMaterial>, Changed<Handle<RefractiveMaterial>>>,
+    material: Query<(&Handle<RefractiveMaterial>, &Transform), Changed<Handle<RefractiveMaterial>>>,
     window_query: Query<&Window>,
     main_camera: Query<&Skybox, With<MainCamera>>,
 ) {
-    if let Ok(handle) = material.get_single() {
+    if let Ok((handle, transform)) = material.get_single() {
         if let Some(water) = materials.get_mut(handle) {
-            info!("Building new water surface");
+            debug!("Building new water surface");
+            let plane_normal = transform.rotation * Vec3::Y;
+            let w = transform.translation.dot(plane_normal);
             let window = window_query.get_single().unwrap();
-
             let size = Extent3d {
                 width: window.physical_width(),
                 height: window.physical_height(),
@@ -147,8 +208,7 @@ fn build_water(
             let reflection_image_handle = images.add(image);
 
             // This specifies the layer used for the first pass, which will be attached to the first pass camera and cube.
-            let first_pass_layer = RenderLayers::layer(RefractiveMaterialPlugin::render_layer());
-
+            let first_pass_layer = RenderLayers::layer(RefractiveMaterial::render_layer());
             let refraction_cam = commands
                 .spawn((
                     Camera3dBundle {
@@ -156,7 +216,12 @@ fn build_water(
                             // render before the "main pass" camera
                             order: -1,
                             target: RenderTarget::Image(refraction_image_handle.clone()),
-                            user_defined_clipping_plane: Some(Vec4::new(0.0, -1.0, 0.0, 0.0)),
+                            user_defined_clipping_plane: Some(Vec4::new(
+                                -plane_normal.x,
+                                -plane_normal.y,
+                                -plane_normal.z,
+                                w,
+                            )),
                             ..default()
                         },
                         ..default()
@@ -173,7 +238,12 @@ fn build_water(
                             // render before the "main pass" camera
                             order: -2,
                             target: RenderTarget::Image(reflection_image_handle.clone()),
-                            user_defined_clipping_plane: Some(Vec4::new(0.0, 1.0, 0.0, 0.0)),
+                            user_defined_clipping_plane: Some(Vec4::new(
+                                plane_normal.x,
+                                plane_normal.y,
+                                plane_normal.z,
+                                w,
+                            )),
                             ..default()
                         },
                         ..default()
@@ -185,6 +255,8 @@ fn build_water(
 
             water.reflection_texture = Some(reflection_image_handle);
             water.refraction_texture = Some(refraction_image_handle);
+
+            // Small cube above the water
 
             // Add skyboxes if needed.
             if let Ok(skybox) = main_camera.get_single() {
@@ -200,12 +272,13 @@ fn system(
         &Transform,
         (
             With<MainCamera>,
+            Changed<Transform>,
             Without<ReflectionCam>,
             Without<RefractionCam>,
         ),
     >,
     mut reflectcam_query: Query<
-        &mut Transform,
+        (&mut Transform, &Camera),
         (
             With<ReflectionCam>,
             Without<RefractionCam>,
@@ -213,7 +286,7 @@ fn system(
         ),
     >,
     mut refraction_query: Query<
-        &mut Transform,
+        (&mut Transform, &Camera),
         (
             With<RefractionCam>,
             Without<ReflectionCam>,
@@ -222,15 +295,11 @@ fn system(
     >,
 ) {
     if let Ok(t1) = camera_query.get_single() {
-        if let Ok(mut ref_trans) = refraction_query.get_single_mut() {
+        if let Ok((mut ref_trans, camera)) = refraction_query.get_single_mut() {
             *ref_trans = t1.clone();
         }
-        if let Ok(mut refl_trans) = reflectcam_query.get_single_mut() {
-            let mut t2 = t1.clone();
-            t2.translation.y = -t2.translation.y;
-            t2.rotation.x = -t2.rotation.x;
-            t2.rotation.z = -t2.rotation.z;
-            *refl_trans = t2;
+        if let Ok((mut refl_trans, camera)) = reflectcam_query.get_single_mut() {
+            *refl_trans = mirror_transform(t1,&camera.user_defined_clipping_plane.unwrap());
         }
     }
 }
